@@ -1,8 +1,38 @@
 import os
+import sqlite3
 import streamlit as st
 from google import genai
 
 st.set_page_config(page_title="ReMemory - 手機聊天室版", layout="centered")
+
+# --- SQLite 資料庫初始化 ---
+def init_db():
+    conn = sqlite3.connect("chat_history.db", check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT,
+            content TEXT
+        )
+    ''')
+    conn.commit()
+    return conn, c
+
+conn, cursor = init_db()
+
+def load_messages():
+    cursor.execute("SELECT role, content FROM messages")
+    rows = cursor.fetchall()
+    return [{"role": row[0], "content": row[1]} for row in rows]
+
+def save_message(role, content):
+    cursor.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
+    conn.commit()
+
+def clear_messages():
+    cursor.execute("DELETE FROM messages")
+    conn.commit()
 
 # --- 仿手機 LINE 介面專屬 CSS 樣式 ---
 st.markdown("""
@@ -60,7 +90,7 @@ div[data-testid="stChatMessage-user"] p, div[data-testid="stChatMessage-assistan
 """, unsafe_allow_html=True)
 
 st.title("💬 ReMemory")
-st.caption("📱 手機聊天室擬真模式")
+st.caption("📱 手機聊天室擬真模式（具備永久記憶）")
 
 # --- 側邊欄：設定與資料輸入 ---
 st.sidebar.header("1. 設定與匯入")
@@ -75,7 +105,7 @@ if current_api_key:
     except Exception as e:
         st.sidebar.error(f"API Key 初始化失敗: {e}")
 
-# 【改進處】將檔案上傳改為文字直接貼上
+# 貼上 LINE 導出對話文字
 chat_input_text = st.sidebar.text_area(
     "貼上 LINE 導出對話文字", 
     height=150,
@@ -103,15 +133,14 @@ if chat_input_text:
     chat_context = sample_lines
     st.sidebar.success(f"成功載入對話紀錄！有效對話共 {len(cleaned_lines)} 行。")
 
-# --- 主畫面：聊天室邏輯 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# --- 主畫面：從資料庫載入對話並渲染 ---
+messages = load_messages()
 
 if st.sidebar.button("清除對話紀錄"):
-    st.session_state.messages = []
+    clear_messages()
     st.rerun()
 
-for message in st.session_state.messages:
+for message in messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
@@ -123,7 +152,8 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
     if not current_api_key or not client:
         st.error("請先在左側欄位輸入你的 Google Gemini API Key！")
     else:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # 儲存使用者訊息進資料庫
+        save_message("user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -139,9 +169,9 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
 > 
 > 請試著放下手機，深呼吸，聯絡身邊信任的朋友、家人，或是尋求專業諮商協助。真實世界裡，有人願意聽你說。
             """
+            save_message("assistant", crisis_reply)
             with st.chat_message("assistant"):
                 st.markdown(crisis_reply)
-            st.session_state.messages.append({"role": "assistant", "content": crisis_reply})
         
         else:
             system_prompt = f"""
@@ -149,7 +179,7 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
             使用者是你的伴侶「{user_name}」。
             
             這是一套陪伴與心理緩衝性質的應用程式，目的是給予使用者情緒價值、協助他們面對斷聯或失落的痛苦。
-            請根據以下提供的真實聊天紀錄樣本，仔細學習對方的語氣、口頭禪、用詞習慣、回話長短與冷熱態度：
+            請根據以下提供的真實聊天紀錄樣本，仔細學習對方の語氣、口頭禪、用詞習慣、回話長短與冷熱態度：
             
             【真實聊天紀錄樣本（已過濾雜訊）】
             {chat_context}
@@ -160,8 +190,9 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
             3. 如果使用者展現依戀或悲傷，請給予溫柔、平靜的回應，並適度、溫和地提醒對方要照顧好自己、多吃早餐、正常生活，避免鼓勵無限期沈溺於虛擬世界中。
             """
 
+            # 組合歷史對話給 Gemini 參考
             full_conversation = system_prompt + "\n\n--- 對話開始 ---\n"
-            for m in st.session_state.messages[:-1]:
+            for m in messages:
                 role_label = target_name if m["role"] == "assistant" else user_name
                 full_conversation += f"{role_label}: {m['content']}\n"
             full_conversation += f"{user_name}: {prompt}\n{target_name}:"
@@ -170,11 +201,11 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
                 with st.chat_message("assistant"):
                     with st.spinner("思考中..."):
                         response = client.models.generate_content(
-                            model='gemini-3.6-flash',
+                            model='gemini-2.5-flash',
                             contents=full_conversation,
                         )
                         reply = response.text
+                        save_message("assistant", reply)
                         st.markdown(reply)
-                        st.session_state.messages.append({"role": "assistant", "content": reply})
             except Exception as e:
                 st.error(f"發生錯誤: {e}")
