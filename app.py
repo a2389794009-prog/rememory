@@ -201,7 +201,7 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
                 with st.chat_message("assistant"):
                     with st.spinner("思考中..."):
                         response = client.models.generate_content(
-                            model='gemini-2.0-flash',
+                            model='gemini-3.6-flash',
                             contents=full_conversation,
                         )
                         reply = response.text
