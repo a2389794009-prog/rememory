@@ -16,7 +16,7 @@ st.markdown("""
 .block-container {
     padding-top: 1.5rem;
     padding-bottom: 2rem;
-    max-width: 480px !important; /* 模擬手機螢幕寬度 */
+    max-width: 480px !important;
     background-color: #7494C0 !important; /* LINE 經典聊天室藍灰色背景 */
     border-radius: 25px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -46,7 +46,7 @@ div[data-testid="stChatMessage-user"] {
     border-radius: 15px 0px 15px 15px !important;
     padding: 10px 14px;
     margin-bottom: 8px;
-    margin-left: auto !important; /* 靠右關鍵 */
+    margin-left: auto !important;
     width: fit-content;
     max-width: 85%;
 }
@@ -62,7 +62,7 @@ div[data-testid="stChatMessage-user"] p, div[data-testid="stChatMessage-assistan
 st.title("💬 ReMemory")
 st.caption("📱 手機聊天室擬真模式")
 
-# --- 側邊欄：設定與資料上傳 ---
+# --- 側邊欄：設定與資料輸入 ---
 st.sidebar.header("1. 設定與匯入")
 api_key_input = st.sidebar.text_input("輸入 Google Gemini API Key", type="password")
 
@@ -75,18 +75,20 @@ if current_api_key:
     except Exception as e:
         st.sidebar.error(f"API Key 初始化失敗: {e}")
 
-uploaded_file = st.sidebar.file_uploader("上傳 Line 聊天紀錄 (.txt)", type=["txt"])
+# 【改進處】將檔案上傳改為文字直接貼上
+chat_input_text = st.sidebar.text_area(
+    "貼上 LINE 導出對話文字", 
+    height=150,
+    placeholder="直接將 LINE 聊天紀錄複製並貼到這裡..."
+)
 
 # 角色名稱設定
 target_name = st.sidebar.text_input("對方稱呼（例如：前任名字）", value="TA")
 user_name = st.sidebar.text_input("你的稱呼", value="我")
 
 chat_context = ""
-if uploaded_file is not None:
-    bytes_data = uploaded_file.getvalue()
-    chat_text = bytes_data.decode("utf-8", errors="ignore")
-    
-    raw_lines = chat_text.splitlines()
+if chat_input_text:
+    raw_lines = chat_input_text.splitlines()
     cleaned_lines = []
     ignore_keywords = ["[貼圖]", "[照片]", "[影片]", "語音通話", "已收回訊息", "建立通話", "通話時間"]
     
@@ -99,7 +101,7 @@ if uploaded_file is not None:
         
     sample_lines = "\n".join(cleaned_lines[-500:]) 
     chat_context = sample_lines
-    st.sidebar.success(f"成功清洗並載入對話紀錄！有效對話共 {len(cleaned_lines)} 行。")
+    st.sidebar.success(f"成功載入對話紀錄！有效對話共 {len(cleaned_lines)} 行。")
 
 # --- 主畫面：聊天室邏輯 ---
 if "messages" not in st.session_state:
