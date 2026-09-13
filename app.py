@@ -5,10 +5,11 @@ from google import genai
 
 st.set_page_config(page_title="ReMemory - 手機聊天室版", layout="centered")
 
-# --- 1. 多用戶隔離資料庫初始化（具備欄位自動升級與容錯） ---
+# --- 1. 多用戶隔離資料庫初始化（支援動態註冊帳號） ---
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
+    # 建立訊息表格
     c.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,16 +18,42 @@ def init_db():
             content TEXT
         )
     ''')
-    # 檢查是否缺少 username 欄位（針對舊版資料庫升級）
-    c.execute("PRAGMA table_info(messages)")
-    columns = [col[1] for col in c.fetchall()]
-    if "username" not in columns:
-        c.execute("ALTER TABLE messages ADD COLUMN username TEXT DEFAULT 'admin'")
+    # 建立獨立的使用者帳號密碼表格
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT
+        )
+    ''')
+    
+    # 確保預設有一組 admin 帳號 (密碼 1234)
+    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ("admin", "1234"))
     
     conn.commit()
     return conn, c
 
 conn, cursor = init_db()
+
+def authenticate_or_register(username, password):
+    username = username.strip()
+    password = password.strip()
+    if not username or not password:
+        return False, "帳號與密碼不能為空！"
+    
+    cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+    result = cursor.fetchone()
+    
+    if result:
+        # 帳號已存在，驗證密碼
+        if result[0] == password:
+            return True, "登入成功！"
+        else:
+            return False, "密碼錯誤，請重新輸入。"
+    else:
+        # 帳號不存在，自動幫用戶註冊新帳號！
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        conn.commit()
+        return True, "新帳號註冊成功，已為您自動登入！"
 
 def load_messages(username):
     try:
@@ -44,17 +71,11 @@ def clear_messages(username):
     cursor.execute("DELETE FROM messages WHERE username = ?", (username,))
     conn.commit()
 
-# --- 2. 簡易登入驗證機制 ---
-USERS_DB = {
-    "admin": "1234",  # 預設帳號 admin，密碼 1234
-    "user1": "5678"   # 預留第二組帳號
-}
-
+# --- 2. 登入與自動註冊介面 ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# 如果尚未登入，顯示登入畫面
 if not st.session_state.logged_in:
     st.markdown("""
     <style>
@@ -63,20 +84,21 @@ if not st.session_state.logged_in:
     </style>
     """, unsafe_allow_html=True)
     
-    st.title("🔒 ReMemory 登入驗證")
-    st.caption("為了保護您的私密對話紀錄，請先登入您的專屬空間。")
+    st.title("🔒 ReMemory 登入與註冊")
+    st.caption("輸入您想使用的帳號與密碼。如果帳號不存在，系統將自動為您建立專屬私密空間！")
     
     input_user = st.text_input("帳號")
     input_pass = st.text_input("密碼", type="password")
     
-    if st.button("登入"):
-        if input_user in USERS_DB and USERS_DB[input_user] == input_pass:
+    if st.button("進入聊天室"):
+        success, msg = authenticate_or_register(input_user, input_pass)
+        if success:
             st.session_state.logged_in = True
-            st.session_state.username = input_user
-            st.success("登入成功！正在進入聊天室...")
+            st.session_state.username = input_user.strip()
+            st.success(msg)
             st.rerun()
         else:
-            st.error("帳號或密碼錯誤，請重新輸入。")
+            st.error(msg)
     
     st.stop()
 
