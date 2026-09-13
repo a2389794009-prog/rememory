@@ -179,7 +179,7 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
             使用者是你的伴侶「{user_name}」。
             
             這是一套陪伴與心理緩衝性質的應用程式，目的是給予使用者情緒價值、協助他們面對斷聯或失落的痛苦。
-            請根據以下提供的真實聊天紀錄樣本，仔細學習對方の語氣、口頭禪、用詞習慣、回話長短與冷熱態度：
+            請根據以下提供的真實聊天紀錄樣本，仔細學習對方的語氣、口頭禪、用詞習慣、回話長短與冷熱態度：
             
             【真實聊天紀錄樣本（已過濾雜訊）】
             {chat_context}
@@ -201,7 +201,7 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
                 with st.chat_message("assistant"):
                     with st.spinner("思考中..."):
                         response = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-2.0-flash',
                             contents=full_conversation,
                         )
                         reply = response.text
