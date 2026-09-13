@@ -5,7 +5,7 @@ from google import genai
 
 st.set_page_config(page_title="ReMemory - 頂配智慧陪伴版", layout="centered")
 
-# --- 1. 資料庫初始化（支援多用戶與摘要快取） ---
+# --- 1. 資料庫初始化 ---
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
@@ -72,7 +72,7 @@ if "logged_in" not in st.session_state:
 if not st.session_state.logged_in:
     st.markdown("""
     <style>
-    .stApp { background-color: #2b2b2b !important; }
+    .stApp { background-color: #121212 !important; color: #ffffff !important; }
     h1, p, label { color: #ffffff !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -95,36 +95,70 @@ if not st.session_state.logged_in:
     
     st.stop()
 
-# --- 3. 仿手機 LINE 介面與動態互動專屬 CSS ---
+# --- 3. 高對比、清晰易讀的現代深色 UI 樣式 ---
 st.markdown("""
 <style>
+/* 整個背景改為沈穩的深色 */
 .stApp {
-    background-color: #2b2b2b !important;
+    background-color: #121212 !important;
 }
+
+/* 強制設定側邊欄為深灰色背景，確保所有文字清晰可見 */
+section[data-testid="stSidebar"] {
+    background-color: #1e1e1e !important;
+    border-right: 1px solid #333333;
+}
+
+/* 側邊欄內的所有文字、標題、標籤改為亮白色 */
+section[data-testid="stSidebar"] h1, 
+section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] h3, 
+section[data-testid="stSidebar"] label, 
+section[data-testid="stSidebar"] p, 
+section[data-testid="stSidebar"] span {
+    color: #f0f0f0 !important;
+}
+
+/* 中央手機聊天室外框：深藍灰色質感 */
 .block-container {
     padding-top: 1.5rem;
     padding-bottom: 2rem;
     max-width: 480px !important;
-    background-color: #7494C0 !important;
-    border-radius: 25px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    background-color: #1f2c34 !important; 
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
     margin-top: 20px;
     margin-bottom: 20px;
+    border: 1px solid #2a3942;
 }
-h1, p, label, span {
+
+/* 主畫面頂部標題文字 */
+h1 {
     color: #ffffff !important;
+    font-size: 1.8rem !important;
 }
+p, span {
+    color: #d1d5db !important;
+}
+
+/* AI（Assistant / 左側）對話氣泡：深色模式下的對話框 */
 div[data-testid="stChatMessage-assistant"] {
-    background-color: #ffffff !important;
+    background-color: #202c33 !important;
     border-radius: 0px 15px 15px 15px !important;
     padding: 10px 14px;
     margin-bottom: 8px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    border: 1px solid #2a3942;
     width: fit-content;
     max-width: 85%;
 }
+div[data-testid="stChatMessage-assistant"] p {
+    color: #e9edef !important;
+    margin: 0;
+}
+
+/* 使用者（User / 右側）對話氣泡：經典 LINE 綠色 */
 div[data-testid="stChatMessage-user"] {
-    background-color: #85E21F !important;
+    background-color: #005c4b !important;
     border-radius: 15px 0px 15px 15px !important;
     padding: 10px 14px;
     margin-bottom: 8px;
@@ -132,8 +166,8 @@ div[data-testid="stChatMessage-user"] {
     width: fit-content;
     max-width: 85%;
 }
-div[data-testid="stChatMessage-user"] p, div[data-testid="stChatMessage-assistant"] p {
-    color: #111111 !important;
+div[data-testid="stChatMessage-user"] p {
+    color: #e9edef !important;
     margin: 0;
 }
 </style>
@@ -185,7 +219,6 @@ if st.sidebar.button("清除目前帳號的對話紀錄"):
     clear_messages(current_user)
     st.rerun()
 
-# 渲染歷史訊息
 for message in messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -194,27 +227,24 @@ for message in messages:
 if messages:
     user_msgs = [m["content"] for m in messages if m["role"] == "user"]
     if user_msgs:
-        # 簡單基於關鍵字的簡易情緒傾向分析
         positive_words = ["開心", "好", "謝謝", "愛", "哈哈", "期待", "棒", "對", "嗯嗯"]
         negative_words = ["累", "難過", "哭", "痛", "想你", "為什麼", "討厭", "煩", "走"]
         
         pos_count = sum(any(w in msg for w in positive_words) for msg in user_msgs)
         neg_count = sum(any(w in msg for w in negative_words) for msg in user_msgs)
         total_analyzed = max(pos_count + neg_count, 1)
-        
         pos_ratio = int((pos_count / total_analyzed) * 100)
         
         st.sidebar.markdown("---")
         st.sidebar.header("📊 心情溫度計")
         st.sidebar.progress(pos_ratio / 100)
-        st.sidebar.caption(f"近期正向互動指數：{pos_ratio}%（持續陪伴，照顧好自己）")
+        st.sidebar.caption(f"近期正向互動指數：{pos_ratio}%")
 
 # --- 7. 核心對話邏輯與防護 ---
 def check_crisis_keywords(text):
     crisis_words = ["不想活", "去死", "想死", "自殺", "陪你走", "活不下去了", "結束生命", "再見了世界"]
     return any(word in text for word in crisis_words)
 
-# 語音輸入小幫手提示
 st.markdown("💡 **小撇步**：您可以使用手機鍵盤內建的「麥克風語音輸入」功能，直接用說的與對方對話。")
 
 if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
@@ -242,7 +272,6 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
                 st.markdown(crisis_reply)
         
         else:
-            # 智慧記憶管理：若對話超過 20 則，自動擷取精華歷史
             recent_messages = messages[-20:] if len(messages) > 20 else messages
 
             system_prompt = f"""
