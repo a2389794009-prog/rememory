@@ -5,7 +5,7 @@ from google import genai
 
 st.set_page_config(page_title="ReMemory - 手機聊天室版", layout="centered")
 
-# --- 1. 多用戶隔離資料庫初始化 ---
+# --- 1. 多用戶隔離資料庫初始化（具備欄位自動升級與容錯） ---
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
@@ -17,15 +17,24 @@ def init_db():
             content TEXT
         )
     ''')
+    # 檢查是否缺少 username 欄位（針對舊版資料庫升級）
+    c.execute("PRAGMA table_info(messages)")
+    columns = [col[1] for col in c.fetchall()]
+    if "username" not in columns:
+        c.execute("ALTER TABLE messages ADD COLUMN username TEXT DEFAULT 'admin'")
+    
     conn.commit()
     return conn, c
 
 conn, cursor = init_db()
 
 def load_messages(username):
-    cursor.execute("SELECT role, content FROM messages WHERE username = ?", (username,))
-    rows = cursor.fetchall()
-    return [{"role": row[0], "content": row[1]} for row in rows]
+    try:
+        cursor.execute("SELECT role, content FROM messages WHERE username = ?", (username,))
+        rows = cursor.fetchall()
+        return [{"role": row[0], "content": row[1]} for row in rows]
+    except Exception:
+        return []
 
 def save_message(username, role, content):
     cursor.execute("INSERT INTO messages (username, role, content) VALUES (?, ?, ?)", (username, role, content))
@@ -36,10 +45,9 @@ def clear_messages(username):
     conn.commit()
 
 # --- 2. 簡易登入驗證機制 ---
-# 你可以在這裡設定允許登入的使用者帳號與密碼
 USERS_DB = {
-    "admin": "1234",  # 預設帳號 admin，密碼 1234（你之後可以自行修改）
-    "user1": "5678"   # 預留給自己或朋友的第二組帳號
+    "admin": "1234",  # 預設帳號 admin，密碼 1234
+    "user1": "5678"   # 預留第二組帳號
 }
 
 if "logged_in" not in st.session_state:
@@ -70,7 +78,7 @@ if not st.session_state.logged_in:
         else:
             st.error("帳號或密碼錯誤，請重新輸入。")
     
-    st.stop()  # 阻斷後續程式碼執行，直到成功登入
+    st.stop()
 
 # --- 3. 仿手機 LINE 介面專屬 CSS 樣式 ---
 st.markdown("""
@@ -184,7 +192,6 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
     if not current_api_key or not client:
         st.error("請先在左側欄位輸入你的 Google Gemini API Key！")
     else:
-        # 儲存至當前用戶的資料庫紀錄
         save_message(current_user, "user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
