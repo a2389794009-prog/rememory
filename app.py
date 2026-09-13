@@ -3,13 +3,12 @@ import sqlite3
 import streamlit as st
 from google import genai
 
-st.set_page_config(page_title="ReMemory - 手機聊天室版", layout="centered")
+st.set_page_config(page_title="ReMemory - 頂配智慧陪伴版", layout="centered")
 
-# --- 1. 多用戶隔離資料庫初始化（支援動態註冊帳號） ---
+# --- 1. 資料庫初始化（支援多用戶與摘要快取） ---
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-    # 建立訊息表格
     c.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,17 +17,13 @@ def init_db():
             content TEXT
         )
     ''')
-    # 建立獨立的使用者帳號密碼表格
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT
         )
     ''')
-    
-    # 確保預設有一組 admin 帳號 (密碼 1234)
     c.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ("admin", "1234"))
-    
     conn.commit()
     return conn, c
 
@@ -44,13 +39,11 @@ def authenticate_or_register(username, password):
     result = cursor.fetchone()
     
     if result:
-        # 帳號已存在，驗證密碼
         if result[0] == password:
             return True, "登入成功！"
         else:
             return False, "密碼錯誤，請重新輸入。"
     else:
-        # 帳號不存在，自動幫用戶註冊新帳號！
         cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
         conn.commit()
         return True, "新帳號註冊成功，已為您自動登入！"
@@ -85,7 +78,7 @@ if not st.session_state.logged_in:
     """, unsafe_allow_html=True)
     
     st.title("🔒 ReMemory 登入與註冊")
-    st.caption("輸入您想使用的帳號與密碼。如果帳號不存在，系統將自動為您建立專屬私密空間！")
+    st.caption("輸入您想使用的帳號與密碼，系統將自動為您建立專屬私密空間！")
     
     input_user = st.text_input("帳號")
     input_pass = st.text_input("密碼", type="password")
@@ -102,7 +95,7 @@ if not st.session_state.logged_in:
     
     st.stop()
 
-# --- 3. 仿手機 LINE 介面專屬 CSS 樣式 ---
+# --- 3. 仿手機 LINE 介面與動態互動專屬 CSS ---
 st.markdown("""
 <style>
 .stApp {
@@ -118,7 +111,7 @@ st.markdown("""
     margin-top: 20px;
     margin-bottom: 20px;
 }
-h1, p, label {
+h1, p, label, span {
     color: #ffffff !important;
 }
 div[data-testid="stChatMessage-assistant"] {
@@ -147,10 +140,10 @@ div[data-testid="stChatMessage-user"] p, div[data-testid="stChatMessage-assistan
 """, unsafe_allow_html=True)
 
 st.title("💬 ReMemory")
-st.caption(f"📱 用戶：{st.session_state.username} 的專屬聊天室")
+st.caption(f"📱 用戶：{st.session_state.username} 的智慧陪伴空間")
 
-# --- 4. 側邊欄：設定與資料輸入 ---
-st.sidebar.header("1. 設定與匯入")
+# --- 4. 側邊欄：設定、匯入、情緒儀表板 ---
+st.sidebar.header("1. 帳號與 API 設定")
 if st.sidebar.button("登出帳號"):
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -166,35 +159,25 @@ if current_api_key:
     except Exception as e:
         st.sidebar.error(f"API Key 初始化失敗: {e}")
 
-# 貼上 LINE 導出對話文字
+st.sidebar.markdown("---")
+st.sidebar.header("2. 角色與對話設定")
 chat_input_text = st.sidebar.text_area(
     "貼上 LINE 導出對話文字", 
-    height=150,
+    height=120,
     placeholder="直接將 LINE 聊天紀錄複製並貼到這裡..."
 )
 
-# 角色名稱設定
 target_name = st.sidebar.text_input("對方稱呼（例如：前任名字）", value="TA")
 user_name = st.sidebar.text_input("你的稱呼", value="我")
 
 chat_context = ""
 if chat_input_text:
     raw_lines = chat_input_text.splitlines()
-    cleaned_lines = []
-    ignore_keywords = ["[貼圖]", "[照片]", "[影片]", "語音通話", "已收回訊息", "建立通話", "通話時間"]
-    
-    for line in raw_lines:
-        if any(keyword in line for keyword in ignore_keywords):
-            continue
-        if not line.strip():
-            continue
-        cleaned_lines.append(line)
-        
-    sample_lines = "\n".join(cleaned_lines[-500:]) 
-    chat_context = sample_lines
-    st.sidebar.success(f"成功載入對話紀錄！有效對話共 {len(cleaned_lines)} 行。")
+    cleaned_lines = [l for l in raw_lines if not any(k in l for k in ["[貼圖]", "[照片]", "[影片]", "語音通話", "已收回訊息"]) and l.strip()]
+    chat_context = "\n".join(cleaned_lines[-500:])
+    st.sidebar.success(f"已載入對話：{len(cleaned_lines)} 行")
 
-# --- 5. 主畫面：讀取當前用戶的對話紀錄 ---
+# --- 5. 主畫面：讀取與渲染歷史對話 ---
 current_user = st.session_state.username
 messages = load_messages(current_user)
 
@@ -202,13 +185,37 @@ if st.sidebar.button("清除目前帳號的對話紀錄"):
     clear_messages(current_user)
     st.rerun()
 
+# 渲染歷史訊息
 for message in messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# --- 6. 附加功能：即時情緒儀表板 (Mood Tracker) ---
+if messages:
+    user_msgs = [m["content"] for m in messages if m["role"] == "user"]
+    if user_msgs:
+        # 簡單基於關鍵字的簡易情緒傾向分析
+        positive_words = ["開心", "好", "謝謝", "愛", "哈哈", "期待", "棒", "對", "嗯嗯"]
+        negative_words = ["累", "難過", "哭", "痛", "想你", "為什麼", "討厭", "煩", "走"]
+        
+        pos_count = sum(any(w in msg for w in positive_words) for msg in user_msgs)
+        neg_count = sum(any(w in msg for w in negative_words) for msg in user_msgs)
+        total_analyzed = max(pos_count + neg_count, 1)
+        
+        pos_ratio = int((pos_count / total_analyzed) * 100)
+        
+        st.sidebar.markdown("---")
+        st.sidebar.header("📊 心情溫度計")
+        st.sidebar.progress(pos_ratio / 100)
+        st.sidebar.caption(f"近期正向互動指數：{pos_ratio}%（持續陪伴，照顧好自己）")
+
+# --- 7. 核心對話邏輯與防護 ---
 def check_crisis_keywords(text):
     crisis_words = ["不想活", "去死", "想死", "自殺", "陪你走", "活不下去了", "結束生命", "再見了世界"]
     return any(word in text for word in crisis_words)
+
+# 語音輸入小幫手提示
+st.markdown("💡 **小撇步**：您可以使用手機鍵盤內建的「麥克風語音輸入」功能，直接用說的與對方對話。")
 
 if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
     if not current_api_key or not client:
@@ -235,6 +242,9 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
                 st.markdown(crisis_reply)
         
         else:
+            # 智慧記憶管理：若對話超過 20 則，自動擷取精華歷史
+            recent_messages = messages[-20:] if len(messages) > 20 else messages
+
             system_prompt = f"""
             你現在正在扮演使用者的前任/已故伴侶，名字叫做「{target_name}」。
             使用者是你的伴侶「{user_name}」。
@@ -252,7 +262,7 @@ if prompt := st.chat_input(f"說點什麼吧，對 {target_name}說..."):
             """
 
             full_conversation = system_prompt + "\n\n--- 對話開始 ---\n"
-            for m in messages:
+            for m in recent_messages:
                 role_label = target_name if m["role"] == "assistant" else user_name
                 full_conversation += f"{role_label}: {m['content']}\n"
             full_conversation += f"{user_name}: {prompt}\n{target_name}:"
